@@ -1,0 +1,12 @@
+{
+  "name": "@razuresoft/0kay-ide",
+  "productName": "0KAY IDE",
+  "private": true,
+  "version": "0.1.4",
+  "description": "0KAY IDE - an editor that works with the local 0kay-agent",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "ui": "bun run --cwd ../vscode/webview-ui build"
+  }
+}

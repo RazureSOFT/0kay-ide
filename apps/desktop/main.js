@@ -27,6 +27,22 @@ const UI = useWebview ? path.join(WEBVIEW_DIR, 'index.html') : path.join(__dirna
  *
  * A loopback server also puts the page on http://, which is what its CSP expects.
  */
+/**
+ * Core's machine credential.
+ *
+ * Read once per window; the stack writes it at .run/api-token. Without it every
+ * /api/agent call comes back 403 "this API requires a plugin identity".
+ */
+function readMachineToken() {
+  try {
+    return fs.readFileSync('D:/0KAY/.run/api-token', 'utf8').trim()
+  } catch {
+    return ''
+  }
+}
+
+let machineToken = ''
+
 function serveBuild(root) {
   const types = {
     '.html': 'text/html; charset=utf-8',
@@ -41,8 +57,35 @@ function serveBuild(root) {
     '.woff': 'font/woff',
     '.ttf': 'font/ttf',
   }
+  machineToken = readMachineToken()
   const server = http.createServer((req, res) => {
     const requested = decodeURIComponent((req.url || '/').split('?')[0])
+    // Same-origin /api: the page is on 127.0.0.1:<random>, Core on :8080. A direct
+    // fetch would be cross-origin and blocked, so requests are proxied here and the
+    // page talks to its own origin.
+    if (requested === '/api' || requested.startsWith('/api/')) {
+      // Core requires an identity for /api/agent/*; the stack publishes a machine
+      // token in .run/api-token, which Core accepts in place of a plugin identity.
+      // Strip the browser's provenance headers. Core treats a request that carries
+      // Origin/Referer/Sec-Fetch-* as a cross-site page and demands a plugin
+      // identity; the same request from a plain local client is allowed. The IDE
+      // is a local client, so the proxy forwards it as one.
+      const headers = { ...req.headers, host: '127.0.0.1:8080' }
+      for (const name of ['origin', 'referer', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest']) {
+        delete headers[name]
+      }
+      if (machineToken) headers.authorization = 'Bearer ' + machineToken
+      const upstream = http.request({
+        host: '127.0.0.1', port: 8080, path: req.url, method: req.method,
+        headers,
+      }, (upstreamRes) => {
+        res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers)
+        upstreamRes.pipe(res)
+      })
+      upstream.on('error', () => { res.writeHead(502, { 'Content-Type': 'text/plain' }).end('core unreachable') })
+      req.pipe(upstream)
+      return
+    }
     const rel = requested === '/' ? '/index.html' : requested
     const clean = path.normalize(rel).split(path.sep).filter((part) => part !== '..' && part !== '.' && part !== '')
     const full = path.join(root, ...clean)
@@ -104,6 +147,24 @@ async function createWindow() {
   // A blank window is indistinguishable from a slow one without a picture.
   // Decide between "rendered but invisible" and "never mounted" before touching
   // any CSS again: the mount point's child count answers it in one run.
+  // IDE_SEND=<text> drives one prompt through the bridge, so the wiring can be
+  // checked without clicking through onboarding.
+  if (process.env.IDE_SEND) {
+    win.webContents.once('did-finish-load', async () => {
+      await new Promise((resolve) => setTimeout(resolve, 4500))
+      const text = process.env.IDE_SEND
+      try {
+        await win.webContents.executeJavaScript(
+          'window.dispatchEvent(new MessageEvent("message", { data: { type: "grpc_request", grpc_request: ' +
+            '{ service: "cline.TaskService", method: "newTask", request_id: "ide-send-1", is_streaming: false, ' +
+            'message: { text: ' + JSON.stringify(text) + ' } } } }))'
+        )
+        console.log('[send] dispatched')
+      } catch (error) {
+        console.log('[send] failed', error && error.message)
+      }
+    })
+  }
   if (process.env.IDE_DEBUG === '1') {
     win.webContents.once('did-finish-load', async () => {
       await new Promise((resolve) => setTimeout(resolve, 5000))

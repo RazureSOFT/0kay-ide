@@ -13,6 +13,84 @@
 const pending = new Map()
 const listeners = []
 
+/**
+ * Theme variables.
+ *
+ * The webview was built for VS Code, which injects `--vscode-*` custom
+ * properties before the app mounts. Without them every `var(--vscode-…)` falls
+ * back to nothing: backgrounds go transparent and text inherits the same colour,
+ * so the UI is technically rendered and completely invisible.
+ */
+const THEME = {
+  'vscode-font-family': '"Segoe UI", "Microsoft YaHei", system-ui, sans-serif',
+  'vscode-font-size': '13px',
+  'vscode-foreground': '#e6e3ee',
+  'vscode-descriptionForeground': '#b4aec2',
+  'vscode-errorForeground': '#ffb4ab',
+  'vscode-editor-background': '#1c1b23',
+  'vscode-editor-foreground': '#e6e3ee',
+  'vscode-editorWidget-background': '#24232d',
+  'vscode-editorWidget-border': '#3a3846',
+  'vscode-sideBar-background': '#191820',
+  'vscode-sideBarSectionHeader-background': '#201f29',
+  'vscode-sideBar-foreground': '#e6e3ee',
+  'vscode-input-background': '#26252f',
+  'vscode-input-foreground': '#e6e3ee',
+  'vscode-input-border': '#4a4759',
+  'vscode-input-placeholderForeground': '#9b96a8',
+  'vscode-button-background': '#b9a6ff',
+  'vscode-button-foreground': '#1a1526',
+  'vscode-button-secondaryBackground': '#34323f',
+  'vscode-button-secondaryForeground': '#e6e3ee',
+  'vscode-button-hoverBackground': '#c9baff',
+  'vscode-button-border': 'transparent',
+  'vscode-badge-background': '#b9a6ff',
+  'vscode-badge-foreground': '#1a1526',
+  'vscode-focusBorder': '#b9a6ff',
+  'vscode-list-hoverBackground': '#2b2935',
+  'vscode-list-activeSelectionBackground': '#3a3550',
+  'vscode-list-activeSelectionForeground': '#ffffff',
+  'vscode-textLink-foreground': '#b9a6ff',
+  'vscode-textCodeBlock-background': '#26252f',
+  'vscode-textBlockQuote-background': '#23222b',
+  'vscode-textBlockQuote-border': '#4a4759',
+  'vscode-panel-background': '#1c1b23',
+  'vscode-panel-border': '#34323f',
+  'vscode-divider': '#34323f',
+  'vscode-scrollbarSlider-background': '#4a475966',
+  'vscode-scrollbarSlider-hoverBackground': '#4a475999',
+  'vscode-scrollbarSlider-activeBackground': '#4a4759cc',
+  'vscode-charts-green': '#7ee0a8',
+  'vscode-charts-yellow': '#f2cf7d',
+  'vscode-charts-red': '#ffb4ab',
+  'vscode-charts-blue': '#8ab4ff',
+  'vscode-charts-purple': '#b9a6ff',
+  'vscode-charts-orange': '#ffb98a',
+  'vscode-notifications-background': '#24232d',
+  'vscode-notifications-foreground': '#e6e3ee',
+  'vscode-editorError-foreground': '#ffb4ab',
+  'vscode-editorWarning-foreground': '#f2cf7d',
+  'vscode-editorInfo-foreground': '#8ab4ff',
+}
+
+function applyTheme() {
+  // setProperty per variable instead of injecting a <style> element: the webview
+  // page has a CSP that rejects an inline sheet, and a rejected sheet's text was
+  // being rendered as page content.
+  const root = document.documentElement
+  for (const [key, value] of Object.entries(THEME)) {
+    root.style.setProperty('--' + key, value)
+  }
+  root.style.colorScheme = 'dark'
+  if (document.body) {
+    // The app reads these to pick a theme; VS Code sets them before load.
+    document.body.classList.add('vscode-dark', 'vscode-high-contrast-off')
+  }
+}
+
+applyTheme()
+document.addEventListener('DOMContentLoaded', applyTheme, { once: true })
+
 function post(message) {
   window.postMessage(message, '*')
 }
@@ -35,17 +113,27 @@ function respond(request, message, streaming) {
  * everything optional is left out rather than faked, so a missing feature shows
  * as missing instead of as wrong data.
  */
-const initialState = {
-  version: '0kay-ide',
+const extensionState = {
+  version: '0.1.4',
   clineMessages: [],
-  currentTaskItem: undefined,
+  taskHistory: [],
   shouldShowAnnouncement: false,
-  autoApprovalSettings: { version: 1, actions: {}, favorites: [] },
+  isNewUser: false,
+  autoApprovalSettings: { version: 1, enabled: false, actions: {}, favorites: [] },
   browserSettings: {},
   apiConfiguration: {},
-  mcpMarketplaceEnabled: false,
-  isNewUser: false,
+  mode: 'act',
+  platform: 'vscode',
+  telemetrySetting: 'disabled',
 }
+
+/**
+ * The State message is one JSON string, not a structure of fields:
+ *   message State { string state_json = 1; }
+ * Sending the object directly is why the UI stayed blank — the client parses
+ * state_json, found nothing, and never got an initial state to render from.
+ */
+const initialState = { state_json: JSON.stringify(extensionState) }
 
 const host = {
   'cline.StateService': (method) => {
@@ -88,6 +176,16 @@ host['cline.ModelsService'] = (method) => {
   if (method.startsWith('subscribeTo')) return { kind: 'once', message: { models: [] } }
   return null
 }
+
+// A blank frame is a crash somewhere we cannot see. These two listeners turn
+// "nothing rendered" into a line pointing at the file and line that threw.
+window.addEventListener('error', (event) => {
+  console.log('[page-error]', event.message, (event.filename || '') + ':' + event.lineno + ':' + event.colno)
+})
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event && event.reason
+  console.log('[page-rejection]', reason && (reason.stack || reason.message) || String(reason))
+})
 
 window.acquireVsCodeApi = () => ({
   postMessage: (message) => handle(message),

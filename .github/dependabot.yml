@@ -1,0 +1,47 @@
+version: 2
+updates:
+    # Main extension dependencies
+    - package-ecosystem: "npm"
+      directory: "/apps/vscode"
+      schedule:
+          interval: "weekly"
+      # Group all updates into a single PR
+      groups:
+          all-dependencies:
+              patterns:
+                  - "*"
+      ignore:
+          # Ignore all non-security updates (security vulnerabilities bypass these ignore rules)
+          - dependency-name: "*"
+            update-types:
+                - "version-update:semver-major"
+                - "version-update:semver-minor"
+                - "version-update:semver-patch"
+
+    # Webview UI dependencies
+    - package-ecosystem: "npm"
+      directory: "/apps/vscode/webview-ui"
+      schedule:
+          interval: "weekly"
+      groups:
+          all-dependencies:
+              patterns:
+                  - "*"
+      ignore:
+          - dependency-name: "@testing-library/*"
+          - dependency-name: "*"
+            update-types:
+                - "version-update:semver-major"
+                - "version-update:semver-minor"
+                - "version-update:semver-patch"
+
+    # Pinned skills CLI release (devDependency of @cline/core). `cline skill`
+    # and the marketplace skill fallback run this exact version through npx,
+    # so version updates are wanted here, unlike the entries above: each bump
+    # goes through CI and review before it reaches users.
+    - package-ecosystem: "bun"
+      directory: "/"
+      schedule:
+          interval: "weekly"
+      allow:
+          - dependency-name: "skills"

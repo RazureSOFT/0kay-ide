@@ -14,7 +14,7 @@ const http = require('node:http')
 // until that is finished the window shows a real status surface rather than a
 // blank frame. Set IDE_WEBVIEW=1 to load the webview build instead.
 const WEBVIEW_DIR = path.join(__dirname, '..', 'vscode', 'webview-ui', 'build')
-const useWebview = process.env.IDE_WEBVIEW === '1'
+const useWebview = process.env.IDE_WEBVIEW !== '0'
 const UI = useWebview ? path.join(WEBVIEW_DIR, 'index.html') : path.join(__dirname, 'shell.html')
 
 /**
@@ -119,6 +119,10 @@ async function createWindow() {
             out.mounts[id] = { children: el.children.length, display: cs.display, visibility: cs.visibility,
               opacity: cs.opacity, w: el.getBoundingClientRect().width, h: el.getBoundingClientRect().height }
           }
+          out.titleHolders = Array.from(document.querySelectorAll('*'))
+            .filter((n) => n.children.length === 0 && (n.textContent || '').trim() === '0KAY IDE')
+            .map((n) => ({ tag: n.tagName, cls: String(n.className || '').slice(0, 80),
+              pos: getComputedStyle(n).position, parent: n.parentElement && n.parentElement.tagName + '.' + String(n.parentElement.className || '').slice(0,40) }))
           out.rootHtml = (document.getElementById('root') || {}).innerHTML ? document.getElementById('root').innerHTML.slice(0, 600) : ''
           out.firstTags = Array.from(document.body.children).map((n) => n.tagName + '#' + (n.id || '') + '.' + (n.className || '').toString().slice(0,40))
           return JSON.stringify(out)

@@ -40,6 +40,19 @@ function createWindow() {
     console.log('[load-failed]', code, description, url)
   })
   win.loadFile(UI)
+  // A blank window is indistinguishable from a slow one without a picture.
+  if (process.env.IDE_SHOT === '1') {
+    win.webContents.once('did-finish-load', async () => {
+      await new Promise((resolve) => setTimeout(resolve, 6000))
+      try {
+        const image = await win.webContents.capturePage()
+        require('node:fs').writeFileSync('D:/Cache/ide-shot.png', image.toPNG())
+        console.log('[shot] written')
+      } catch (error) {
+        console.log('[shot] failed', error && error.message)
+      }
+    })
+  }
   // Links inside the conversation belong in the browser, not in the IDE frame.
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)

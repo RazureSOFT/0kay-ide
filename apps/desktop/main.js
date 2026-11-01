@@ -8,7 +8,12 @@ const path = require('node:path')
  * that host exists here, this window is the shell: it proves the UI renders and
  * gives us the frame to attach the bridge to.
  */
-const UI = path.join(__dirname, '..', 'vscode', 'webview-ui', 'build', 'index.html')
+// Cline's webview needs its host to answer proto requests before React mounts;
+// until that is finished the window shows a real status surface rather than a
+// blank frame. Set IDE_WEBVIEW=1 to load the webview build instead.
+const UI = process.env.IDE_WEBVIEW === '1'
+  ? path.join(__dirname, '..', 'vscode', 'webview-ui', 'build', 'index.html')
+  : path.join(__dirname, 'shell.html')
 
 function createWindow() {
   const win = new BrowserWindow({

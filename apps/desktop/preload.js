@@ -77,7 +77,13 @@ function applyTheme() {
   // setProperty per variable instead of injecting a <style> element: the webview
   // page has a CSP that rejects an inline sheet, and a rejected sheet's text was
   // being rendered as page content.
-  const root = document.documentElement
+  //
+  // Guarded because preload runs before the document exists: touching
+  // documentElement here threw, the whole preload failed to load, and the page
+  // fell back to "postMessage fallback" with no bridge at all — a blank window
+  // caused by the code meant to fix styling.
+  const root = typeof document !== 'undefined' ? document.documentElement : null
+  if (!root) return
   for (const [key, value] of Object.entries(THEME)) {
     root.style.setProperty('--' + key, value)
   }
@@ -88,8 +94,14 @@ function applyTheme() {
   }
 }
 
-applyTheme()
-document.addEventListener('DOMContentLoaded', applyTheme, { once: true })
+try {
+  applyTheme()
+} catch (error) {
+  console.log('[0kay-ide] theme skipped', error && error.message)
+}
+document.addEventListener('DOMContentLoaded', () => {
+  try { applyTheme() } catch (error) { console.log('[0kay-ide] theme skipped', error && error.message) }
+}, { once: true })
 
 function post(message) {
   window.postMessage(message, '*')
@@ -130,10 +142,10 @@ const extensionState = {
 /**
  * The State message is one JSON string, not a structure of fields:
  *   message State { string state_json = 1; }
- * Sending the object directly is why the UI stayed blank — the client parses
- * state_json, found nothing, and never got an initial state to render from.
+ * The client reads `response.stateJson` — protobuf JSON mapping is camelCase, so
+ * `state_json` was silently ignored and the app never received a state at all.
  */
-const initialState = { state_json: JSON.stringify(extensionState) }
+const initialState = { stateJson: JSON.stringify(extensionState) }
 
 const host = {
   'cline.StateService': (method) => {
